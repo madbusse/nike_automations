@@ -169,6 +169,31 @@ def print_metrics(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: li
             print(f'{kpi} Actual {thisyear_today[kpi].iloc[0].round(2)}%, {get_sign(change)}{change}% YoY')
         else:
             return ''
+        
+def make_metric_df(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: list[str], bf_date: int, row_name: str) -> pd.DataFrame:
+    """
+    Makes a dataframe including all kpis given for the given date, including cols
+    for actuals and YoY values. Requires a row name.
+    """
+
+    output_df = pd.DataFrame()
+    for kpi in kpis:
+        output_df[kpi] = ""
+        output_df[f'{kpi} YoY'] = ""
+
+    thisyear_today = thisyear_df[thisyear_df['bf_date'] == bf_date]
+    lastyear_today = lastyear_df[lastyear_df['bf_date'] == bf_date]
+
+    for kpi in kpis:
+        change = percent_change(thisyear_today[kpi].iloc[0], lastyear_today[kpi].iloc[0])
+        if kpi in ['ROAS', 'CPV', 'AOV', 'CPM', 'CPC']:
+            output_df.loc[row_name, kpi] = f'${thisyear_today[kpi].iloc[0].round(2)}'
+        elif kpi in ['CVR']:
+            output_df.loc[row_name, kpi] = f'{thisyear_today[kpi].iloc[0].round(2)}%'
+        output_df.loc[row_name, f'{kpi} YoY'] = f'{get_sign(change)}{change}% YoY'
+
+    return output_df
+
 
 # defaults to yesterday for data
 yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
@@ -206,13 +231,17 @@ with open("slack_message.txt", "w") as f:
     else:
         print("\n=== META PROMO ===")
         print_metrics(thisyear_meta_promo, lastyear_meta_promo, topline_kpis, yesterday_bf_date)
+sys.stdout = sys.__stdout__
+f.close()
 
 ### OUTPUTS
-# make dfs:
-    # allup
-    # dynamic
-    # promo
-# merge dfs on metric cols with allump/dynamic/promo as rows
-# output as 1 csv
-# (in workflow) upload to google sheet
-# (in workflow) include link to data
+allup_df = make_metric_df(thisyear_allup, lastyear_allup, kpis, yesterday_bf_date, 'ALLUP')
+meta_dynamic_df = make_metric_df(thisyear_meta_dynamic, lastyear_meta_dynamic, kpis, yesterday_bf_date, 'META DYNAMIC')
+merge1 = pd.concat([allup_df, meta_dynamic_df])
+merge1.to_csv("full_metrics.csv", index=True)
+if thisyear_meta_promo.empty:
+    pass
+else:
+    meta_promo_df = make_metric_df(thisyear_meta_promo, lastyear_meta_promo, kpis, yesterday_bf_date, 'META PROMO')
+    merge2 = pd.concat([merge1, meta_promo_df])
+    merge2.to_csv("full_metrics.csv", index=True)
