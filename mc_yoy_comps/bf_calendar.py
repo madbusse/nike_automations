@@ -1,15 +1,15 @@
 import pandas as pd
 import math
 import datetime
-# from datetime import datetime, date, timedelta
 from dateutil.relativedelta import TH, relativedelta
 
 ### INPUTS
-breakdown_platforms = ['meta']
-breakdown_campaigns = ['dynamic']
+breakdown_platforms = ['meta'] # not currently used - would use for generalization (loop)
+breakdown_campaigns = ['dynamic', 'promo']  # not currently used - would use for generalization (loop)
 kpis = ['ROAS', 'CPV', 'CVR', 'AOV', 'CPM', 'CPC']
 topline_kpis = ['ROAS', 'CPV', 'CPM']
-thisyear = 2025
+yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+thisyear = yesterday.year
 lastyear = thisyear - 1
 
 def black_friday(year: int) -> datetime.date:
@@ -28,11 +28,19 @@ def load_df(year: int) -> pd.DataFrame:
     df = pd.read_csv(filename)
     return df
 
-def rename_cols(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     """
-    Shortens the names of relevant columns and converts dates to datetimes.
+    Shortens the names of relevant columns, converts dates to datetimes, and
+    adds Black Friday date to each row based on the given year.
+    
+    A Black Friday date is an integer representing the number of days from that
+    calendar date to Black Friday of that year.
+    
+    NB: BF dates imply directionality in their signage.
     """
     df["date"] = pd.to_datetime(df["date_day"], format="%m/%d/%Y")
+    bf = black_friday(year)
+    df["bf_date"] = (df["date"] - pd.to_datetime(bf)).dt.days
     df = df.rename(columns={
         "lc_demand_digital_web_app_adobe": "demand",
         "lc_orders_digital_web_app_adobe": "orders",
@@ -42,13 +50,19 @@ def rename_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop(columns=['date_day'])
     return df
 
+def get_date_from_bf_date(year: int, bf_date: int) -> datetime.date:
+    """
+    Gets a datetime date from the BF date in a given year.
+    """
+    bf = black_friday(year)
+    return bf + relativedelta(days=bf_date)
+
 def filter_platform(df: pd.DataFrame, platform: str) -> pd.DataFrame:
     """
     Filters a dataframe down to only contain data from the given platform.
     """
-    #TODO
-    #groupby platform
-    return
+    platform_df = df[df["platform"] == platform]
+    return platform_df
 
 def filter_campaign(df: pd.DataFrame, keyword: str) -> pd.DataFrame:
     """
@@ -59,16 +73,16 @@ def filter_campaign(df: pd.DataFrame, keyword: str) -> pd.DataFrame:
     
     e.g. for Mens 18+ campaigns, I would use "mens_18+" rather than just "mens"
     """
-    #TODO
-    #groupby campaign name
-    #sortby contains keyword
-    return
+    campaign_df = df[df["campaign_name"].str.contains(keyword, case=False, na=False)]
+    return campaign_df
 
 def aggregate_by_day(df: pd.DataFrame, kpis: list[str]) -> pd.DataFrame:
     """
     Aggregates a dataframe so that there is only one row per date. 
+
+    Sums every column except date and bf_date, which it groups by. 
     """
-    df = df.groupby("date", as_index=False).sum()
+    df = df.groupby(["date", "bf_date"], as_index=False).sum()
     for kpi in kpis:
         if kpi == 'ROAS':
             df[kpi] = df['demand']/df['spend']
@@ -82,19 +96,6 @@ def aggregate_by_day(df: pd.DataFrame, kpis: list[str]) -> pd.DataFrame:
             df[kpi] = df['spend']/df['impressions']*1000
         elif kpi == 'CPC':
             df[kpi] = df['spend']/df['clicks']
-    return df
-
-def add_bf_dates(year: int, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds Black Friday dates into a new column in the dataframe.
-    
-    A Black Friday date is an integer representing the number of days from that
-    calendar date to Black Friday of that year.
-    
-    NB: BF dates imply directionality in their signage.
-    """
-    bf = black_friday(year)
-    df["bf_date"] = (df["date"] - pd.to_datetime(bf)).dt.days
     return df
 
 def percent_change(current: float, former: float) -> int:
@@ -111,26 +112,25 @@ def percent_change(current: float, former: float) -> int:
 def get_sign(metric: float) -> str:
     """
     Gets the sign of the given metric and returns the appropriate prefix.
+
+    NB: only returns '+' because the negative sign is stuck to neg values.
     """
     if metric > 0:
         sign = '+'
-    elif metric < 0:
-        sign = '-'
     else:
         sign = ''
     return sign
 
-def print_header(lastyear_df: pd.DataFrame, bf_date: int) -> None:
+def print_header(ty_date: datetime.date, ly_date: datetime.date, bf_date: int) -> None:
     """
     Prints a header with the current date, bf_date, and last year's comp date.
 
     INPUTS:
-        thisyear_df: dataframe representing the current year's data
-        lastyear_df: dataframe representing the last year's data
-        kpis: list of kpis (as strings with proper capitalization) to be printed
-        bf_date: int that represents the bf_date that metrics are wanted for (consistent across years)
+        ty_date: this year's date
+        ly_date: last year's date (the comp with same bf_date)
+        bf_date: the bf_date of both ty_date and ly_date
 
-    OUTPUT: None, prints kpi metrics given for the given date
+    OUTPUT: None, prints header for the given date.
     """
     suffix = ''
     if bf_date > 0:
@@ -140,13 +140,9 @@ def print_header(lastyear_df: pd.DataFrame, bf_date: int) -> None:
     else:
         suffix = 'from'
 
-    lastyear_today = lastyear_df[lastyear_df['bf_date'] == bf_date]
-    lastyear_date = lastyear_today['date'].iloc[0]
+    print(f"\nReporting for {ty_date.strftime('%a')} {ty_date}, {abs(bf_date)} days {suffix} Black Friday.")
+    print(f"(Comping with {ly_date.strftime('%a')} {ly_date})\n")
 
-    print(f"Reporting for {yesterday.strftime('%a')} {yesterday.date()}, {abs(bf_date)} days {suffix} Black Friday.")
-    print(f"(Comping with {lastyear_date.strftime('%a')} {lastyear_date.date()})\n")
-
-#TODO: decompose this guy lol he getting long
 def print_metrics(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: list[str], bf_date: int) -> None:
     """
     Prints metrics with YoY comps for the given KPIs. 
@@ -165,35 +161,43 @@ def print_metrics(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: li
     for kpi in kpis:
         change = percent_change(thisyear_today[kpi].iloc[0], lastyear_today[kpi].iloc[0])
         if kpi in ['ROAS', 'CPV', 'AOV', 'CPM', 'CPC']:
-            print(f'{kpi} Actual ${thisyear_today[kpi].iloc[0].round(2)}, {change}% YoY')
+            print(f'{kpi} Actual ${thisyear_today[kpi].iloc[0].round(2)}, {get_sign(change)}{change}% YoY')
         elif kpi in ['CVR']:
-            print(f'{kpi} Actual {thisyear_today[kpi].iloc[0].round(2)}%, {change}% YoY')
+            print(f'{kpi} Actual {thisyear_today[kpi].iloc[0].round(2)}%, {get_sign(change)}{change}% YoY')
         else:
             return ''
 
+### Print header - defaults to data for YESTERDAY
+yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
+yesterday_lastyear = get_date_from_bf_date(lastyear, yesterday_bf_date)
+print_header(yesterday.date(), yesterday_lastyear, yesterday_bf_date)
+
 ### Pre-processing
-thisyear_df = rename_cols(load_df(thisyear))
-
-
+thisyear_df = prepare_df(load_df(thisyear), thisyear)
+lastyear_df = prepare_df(load_df(lastyear), lastyear)
 
 ### ALLUP 
-thisyear_df = rename_cols(load_df(thisyear))
-thisyear_allup = add_bf_dates(thisyear, aggregate_by_day(thisyear_df, kpis))
-lastyear_df = rename_cols(load_df(lastyear))
-lastyear_allup = add_bf_dates(lastyear, aggregate_by_day(lastyear_df, kpis))
-yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
-print('\n')
-print_header(lastyear_allup, yesterday_bf_date)
 print('=== ALLUP SOCIAL COMMERCE ===')
+thisyear_allup = aggregate_by_day(thisyear_df, kpis)
+lastyear_allup = aggregate_by_day(lastyear_df, kpis)
 print_metrics(thisyear_allup, lastyear_allup, topline_kpis, yesterday_bf_date)
-print('\n')
-print('=== META DYNAMIC ===')
-#TODO - but dont change anything big lol
-print('=== META PROMO ===')
-#TODO
 
+### META
+thisyear_meta = filter_platform(thisyear_df, 'meta')
+lastyear_meta = filter_platform(lastyear_df, 'meta')
+
+print('\n=== META DYNAMIC ===')
+thisyear_meta_dynamic = aggregate_by_day(filter_campaign(thisyear_meta, 'dynamic'), kpis)
+lastyear_meta_dynamic = aggregate_by_day(filter_campaign(lastyear_meta, 'dynamic'), kpis)
+print_metrics(thisyear_meta_dynamic, lastyear_meta_dynamic, topline_kpis, yesterday_bf_date)
+
+thisyear_meta_promo = aggregate_by_day(filter_campaign(thisyear_meta, 'promo'), kpis)
+if thisyear_meta_promo.empty:
+    print("\nNo Meta Promo data from this year.\n")
+else:
+    print('\n=== META PROMO ===')
+    lastyear_meta_promo = aggregate_by_day(filter_campaign(lastyear_meta, 'promo'), kpis)
+    print_metrics(thisyear_meta_promo, lastyear_meta_promo, topline_kpis, yesterday_bf_date)
 
 ### OUTPUTS
-# text message (slack)
 # pd.df -> csv -> upload to google sheets
