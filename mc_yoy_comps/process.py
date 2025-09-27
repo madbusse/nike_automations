@@ -2,7 +2,6 @@ import pandas as pd
 import sys
 import math
 import datetime
-import dateutil.relativedelta
 
 ### INPUTS
 breakdown_platforms = ['meta'] # not currently used - would use for generalization (loop)
@@ -17,7 +16,10 @@ def black_friday(year: int) -> datetime.date:
     """
     Gets the date, as a datetime date, of Black Friday for the given year.
     """
-    tgiving = datetime.date(year, 11, 1) + dateutil.relativedelta.relativedelta(weekday=dateutil.relativedelta.TH(4))
+    nov1 = datetime.date(year, 11, 1)
+    days_until_thursday = (3 - nov1.weekday()) % 7
+    first_thursday = nov1 + datetime.timedelta(days=days_until_thursday)
+    tgiving = first_thursday + datetime.timedelta(weeks=3)
     bf = tgiving + datetime.timedelta(days=1)
     return bf
 
@@ -56,7 +58,7 @@ def get_date_from_bf_date(year: int, bf_date: int) -> datetime.date:
     Gets a datetime date from the BF date in a given year.
     """
     bf = black_friday(year)
-    return bf + dateutil.relativedelta.relativedelta(days=bf_date)
+    return bf + datetime.timedelta(days=bf_date)
 
 def filter_platform(df: pd.DataFrame, platform: str) -> pd.DataFrame:
     """
@@ -206,4 +208,11 @@ with open("slack_message.txt", "w") as f:
         print_metrics(thisyear_meta_promo, lastyear_meta_promo, topline_kpis, yesterday_bf_date)
 
 ### OUTPUTS
-# pd.df -> csv -> upload to google sheets
+# make dfs:
+    # allup
+    # dynamic
+    # promo
+# merge dfs on metric cols with allump/dynamic/promo as rows
+# output as 1 csv
+# (in workflow) upload to google sheet
+# (in workflow) include link to data
