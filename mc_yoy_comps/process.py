@@ -31,6 +31,17 @@ def load_df(year: int) -> pd.DataFrame:
     df = pd.read_csv(filename)
     return df
 
+def get_bf_week(bf_date: int) -> int:
+    """
+    Calculates bf_week, which represents which week before BF a bf_date is.
+    
+    NB: As with bf_dates, sign implies directionality
+
+    Also NB: Weeks are Sunday to Saturday, with week of Thanksgiving = 0 and
+    Cyber Week = 1.
+    """
+    return math.ceil((bf_date - 1) / 7)
+
 def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     """
     Shortens the names of relevant columns, converts dates to datetimes, and
@@ -44,6 +55,7 @@ def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date_day"], format="%m/%d/%Y")
     bf = black_friday(year)
     df["bf_date"] = (df["date"] - pd.to_datetime(bf)).dt.days
+    #df["bf_week"] = df["bf_date"].apply(get_bf_week)
     df = df.rename(columns={
         "lc_demand_digital_web_app_adobe": "demand",
         "lc_orders_digital_web_app_adobe": "orders",
@@ -59,17 +71,6 @@ def get_date_from_bf_date(year: int, bf_date: int) -> datetime.date:
     """
     bf = black_friday(year)
     return bf + datetime.timedelta(days=bf_date)
-
-def get_bf_week(bf_date: int) -> int:
-    """
-    Calculates bf_week, which represents which week before BF a bf_date is.
-    
-    NB: As with bf_dates, sign implies directionality
-
-    Also NB: Weeks are Sunday to Saturday, with week of Thanksgiving = 0 and
-    Cyber Week = 1.
-    """
-    return math.ceil((bf_date - 1) / 7)
 
 def filter_platform(df: pd.DataFrame, platform: str) -> pd.DataFrame:
     """
