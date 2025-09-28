@@ -60,6 +60,17 @@ def get_date_from_bf_date(year: int, bf_date: int) -> datetime.date:
     bf = black_friday(year)
     return bf + datetime.timedelta(days=bf_date)
 
+def get_bf_week(bf_date: int) -> int:
+    """
+    Calculates bf_week, which represents which week before BF a bf_date is.
+    
+    NB: As with bf_dates, sign implies directionality
+
+    Also NB: Weeks are Sunday to Saturday, with week of Thanksgiving = 0 and
+    Cyber Week = 1.
+    """
+    return math.ceil((bf_date - 1) / 7)
+
 def filter_platform(df: pd.DataFrame, platform: str) -> pd.DataFrame:
     """
     Filters a dataframe down to only contain data from the given platform.
@@ -194,7 +205,6 @@ def make_metric_df(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: l
 
     return output_df
 
-
 # defaults to yesterday for data
 yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
 yesterday_lastyear = get_date_from_bf_date(lastyear, yesterday_bf_date)
@@ -218,7 +228,7 @@ if thisyear_meta_promo.empty:
 else:
     lastyear_meta_promo = aggregate_by_day(filter_campaign(lastyear_meta, 'promo'), kpis)
 
-### SLACK MESSAGE
+## SLACK MESSAGE
 with open("slack_message.txt", "w") as f:
     sys.stdout = f
     print_header(yesterday.date(), yesterday_lastyear, yesterday_bf_date)
@@ -234,7 +244,7 @@ with open("slack_message.txt", "w") as f:
 sys.stdout = sys.__stdout__
 f.close()
 
-### OUTPUTS
+### OUTPUT CSV
 allup_df = make_metric_df(thisyear_allup, lastyear_allup, kpis, yesterday_bf_date, 'ALLUP')
 meta_dynamic_df = make_metric_df(thisyear_meta_dynamic, lastyear_meta_dynamic, kpis, yesterday_bf_date, 'META DYNAMIC')
 merge1 = pd.concat([allup_df, meta_dynamic_df])
