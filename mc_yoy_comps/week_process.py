@@ -3,6 +3,8 @@ import sys
 import math
 import datetime
 
+#TODO: fix '>' error when there is no data for current data (could happen if data report fails)
+
 ### INPUTS
 breakdown_platforms = ['meta'] # not currently used - would use for generalization (loop)
 breakdown_campaigns = ['dynamic', 'promo']  # not currently used - would use for generalization (loop)
@@ -31,6 +33,17 @@ def load_df(year: int) -> pd.DataFrame:
     df = pd.read_csv(filename)
     return df
 
+def get_bf_week(bf_date: int) -> int:
+    """
+    Calculates bf_week, which represents which week before BF a bf_date is.
+    
+    NB: As with bf_dates, sign implies directionality
+
+    Also NB: Weeks are Sunday to Saturday, with week of Thanksgiving = 0 and
+    Cyber Week = 1.
+    """
+    return math.ceil((bf_date - 1) / 7)
+
 def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     """
     Shortens the names of relevant columns, converts dates to datetimes, and
@@ -44,6 +57,7 @@ def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date_day"], format="%m/%d/%Y")
     bf = black_friday(year)
     df["bf_date"] = (df["date"] - pd.to_datetime(bf)).dt.days
+    df["bf_week"] = df["bf_date"].apply(get_bf_week)
     df = df.rename(columns={
         "lc_demand_digital_web_app_adobe": "demand",
         "lc_orders_digital_web_app_adobe": "orders",
@@ -101,6 +115,29 @@ def aggregate_by_day(df: pd.DataFrame, kpis: list[str]) -> pd.DataFrame:
             df[kpi] = df['spend']/df['clicks']
     return df
 
+def aggregate_by_week(df: pd.DataFrame, kpis: list[str]) -> pd.DataFrame:
+    """
+    Aggregates days in a df by their bf_week.
+
+    NB: logic requires this be run on a df that has NOT been aggregated by day.
+    """
+    df = df.drop(columns=['date', 'bf_date'])
+    df = df.groupby(["bf_week"], as_index=False).sum()
+    for kpi in kpis:
+        if kpi == 'ROAS':
+            df[kpi] = df['demand']/df['spend']
+        elif kpi == 'CPV':
+            df[kpi] = df['spend']/df['visits']
+        elif kpi == 'CVR':
+            df[kpi] = df['orders']/df['visits']
+        elif kpi == 'AOV':
+            df[kpi] = df['demand']/df['orders']
+        elif kpi == 'CPM':
+            df[kpi] = df['spend']/df['impressions']*1000
+        elif kpi == 'CPC':
+            df[kpi] = df['spend']/df['clicks']
+    return df
+
 def percent_change(current: float, former: float) -> int:
     """
     Calculates percent change between a current and former value.
@@ -143,7 +180,7 @@ def print_header(ty_date: datetime.date, ly_date: datetime.date, bf_date: int) -
     else:
         suffix = 'from'
 
-    print(f" *Reporting for {ty_date.strftime('%a')} {ty_date}, {abs(bf_date)} days {suffix} Black Friday.* ")
+    print(f"Reporting for {ty_date.strftime('%a')} {ty_date}, {abs(bf_date)} days {suffix} Black Friday.")
     print(f"(Comping with {ly_date.strftime('%a')} {ly_date})")
 
 def print_metrics(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: list[str], bf_date: int) -> None:
@@ -170,33 +207,38 @@ def print_metrics(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: li
         else:
             return ''
         
-def make_metric_df(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: list[str], bf_date: int, row_name: str) -> pd.DataFrame:
+def make_metric_df(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: list[str], timeframe: str, bf_date_or_week: int, row_name: str) -> pd.DataFrame:
     """
     Makes a dataframe including all kpis given for the given date, including cols
     for actuals and YoY values. Requires a row name.
-    """
 
+    NB: timeframe is bf_date or bf_week; choose O&OO as str 
+    """
     output_df = pd.DataFrame()
     for kpi in kpis:
         output_df[kpi] = ""
         output_df[f'{kpi} YoY'] = ""
 
-    thisyear_today = thisyear_df[thisyear_df['bf_date'] == bf_date]
-    lastyear_today = lastyear_df[lastyear_df['bf_date'] == bf_date]
-
+    if timeframe == "bf_date":
+        thisyear_data = thisyear_df[thisyear_df['bf_date'] == bf_date_or_week]
+        lastyear_data = lastyear_df[lastyear_df['bf_date'] == bf_date_or_week]
+    elif timeframe == "bf_week":
+        thisyear_data = thisyear_df[thisyear_df['bf_week'] == bf_date_or_week]
+        lastyear_data = lastyear_df[lastyear_df['bf_week'] == bf_date_or_week]
+    
     for kpi in kpis:
-        change = percent_change(thisyear_today[kpi].iloc[0], lastyear_today[kpi].iloc[0])
+        change = percent_change(thisyear_data[kpi].iloc[0], lastyear_data[kpi].iloc[0])
         if kpi in ['ROAS', 'CPV', 'AOV', 'CPM', 'CPC']:
-            output_df.loc[row_name, kpi] = f'${thisyear_today[kpi].iloc[0].round(2)}'
+            output_df.loc[row_name, kpi] = f'${thisyear_data[kpi].iloc[0].round(2)}'
         elif kpi in ['CVR']:
-            output_df.loc[row_name, kpi] = f'{thisyear_today[kpi].iloc[0].round(2)}%'
+            output_df.loc[row_name, kpi] = f'{thisyear_data[kpi].iloc[0].round(2)}%'
         output_df.loc[row_name, f'{kpi} YoY'] = f'{get_sign(change)}{change}% YoY'
 
     return output_df
 
-
 # defaults to yesterday for data
 yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
+yesterday_bf_week = get_bf_week(yesterday_bf_date)
 yesterday_lastyear = get_date_from_bf_date(lastyear, yesterday_bf_date)
 
 ### Make dfs
@@ -206,24 +248,30 @@ lastyear_df = prepare_df(load_df(lastyear), lastyear)
 ### ALLUP 
 thisyear_allup = aggregate_by_day(thisyear_df, kpis)
 lastyear_allup = aggregate_by_day(lastyear_df, kpis)
-thisyear_allup.to_csv("debug.csv", index = True)
-print("check", thisyear_allup["orders"][7])
+thisyear_weekly_allup = aggregate_by_week(thisyear_df, kpis)
+lastyear_weekly_allup = aggregate_by_week(lastyear_df, kpis)
 
 ### META
 thisyear_meta = filter_platform(thisyear_df, 'meta')
 lastyear_meta = filter_platform(lastyear_df, 'meta')
 thisyear_meta_dynamic = aggregate_by_day(filter_campaign(thisyear_meta, 'dynamic'), kpis)
 lastyear_meta_dynamic = aggregate_by_day(filter_campaign(lastyear_meta, 'dynamic'), kpis)
+thisyear_weekly_meta_dynamic = aggregate_by_week(filter_campaign(thisyear_meta, 'dynamic'), kpis)
+lastyear_weekly_meta_dynamic = aggregate_by_week(filter_campaign(lastyear_meta, 'dynamic'), kpis)
 thisyear_meta_promo = aggregate_by_day(filter_campaign(thisyear_meta, 'promo'), kpis)
+thisyear_weekly_meta_promo = aggregate_by_week(filter_campaign(thisyear_meta, 'promo'), kpis)
 if thisyear_meta_promo.empty:
     pass
 else:
     lastyear_meta_promo = aggregate_by_day(filter_campaign(lastyear_meta, 'promo'), kpis)
+    lastyear_weekly_meta_promo = aggregate_by_week(filter_campaign(lastyear_meta, 'promo'), kpis)
 
-### SLACK MESSAGE
+## SLACK MESSAGE
 with open("slack_message.txt", "w") as f:
     sys.stdout = f
     print_header(yesterday.date(), yesterday_lastyear, yesterday_bf_date)
+    if yesterday.weekday() == 6:
+        print(' *Today is Monday!* Find data from last week <https://docs.google.com/spreadsheets/d/1Ahs7x0vivQktKV1pLOu5RwobhAIRBEfzQOTn7W1NHig/edit?gid=510339820#gid=510339820|here>.')
     print("\n *=== ALLUP SOCIAL COMMERCE ===* ")
     print_metrics(thisyear_allup, lastyear_allup, topline_kpis, yesterday_bf_date)
     print("\n *=== META DYNAMIC ===* ")
@@ -236,14 +284,25 @@ with open("slack_message.txt", "w") as f:
 sys.stdout = sys.__stdout__
 f.close()
 
-### OUTPUTS
-allup_df = make_metric_df(thisyear_allup, lastyear_allup, kpis, yesterday_bf_date, 'ALLUP')
-meta_dynamic_df = make_metric_df(thisyear_meta_dynamic, lastyear_meta_dynamic, kpis, yesterday_bf_date, 'META DYNAMIC')
+### OUTPUT CSV
+allup_df = make_metric_df(thisyear_allup, lastyear_allup, kpis, "bf_date", yesterday_bf_date, f'ALLUP ({yesterday.date()})')
+meta_dynamic_df = make_metric_df(thisyear_meta_dynamic, lastyear_meta_dynamic, kpis, "bf_date", yesterday_bf_date, f'META DYNAMIC ({yesterday.date()})')
 merge1 = pd.concat([allup_df, meta_dynamic_df])
-merge1.to_csv("full_metrics.csv", index=True)
 if thisyear_meta_promo.empty:
-    pass
+    merge1.to_csv("full_metrics.csv", index=True)
 else:
-    meta_promo_df = make_metric_df(thisyear_meta_promo, lastyear_meta_promo, kpis, yesterday_bf_date, 'META PROMO')
+    meta_promo_df = make_metric_df(thisyear_meta_promo, lastyear_meta_promo, kpis, "bf_date", yesterday_bf_date, f'META PROMO ({yesterday.date()})')
     merge2 = pd.concat([merge1, meta_promo_df])
     merge2.to_csv("full_metrics.csv", index=True)
+### WEEKLY 
+if yesterday.weekday() == 6:
+    allup_weekly_df = make_metric_df(thisyear_weekly_allup, lastyear_weekly_allup, kpis, "bf_week", yesterday_bf_week, f'ALLUP (last week)')
+    meta_dynamic_weekly_df = make_metric_df(thisyear_weekly_meta_dynamic, lastyear_weekly_meta_dynamic, kpis, "bf_week", yesterday_bf_week, f'META DYNAMIC (last week)')
+    merge1weekly = pd.concat([allup_weekly_df, meta_dynamic_weekly_df])
+    if thisyear_weekly_meta_promo.empty:
+        merge1weekly.to_csv("full_metrics_weekly.csv", index=True)
+    else:
+        meta_promo_weekly_df = make_metric_df(thisyear_weekly_meta_promo, lastyear_weekly_meta_promo, kpis, "bf_week", yesterday_bf_week, f'META PROMO (last week)')
+        merge2weekly = pd.concat([merge1weekly, meta_promo_weekly_df])
+        merge2weekly.to_csv("full_metrics_weekly.csv", index=True)
+
