@@ -1,5 +1,5 @@
 # Nike Automations
-Check out some sneak peaks of solutions I've built to automate marketing operations at Nike. I can't share all the code, but here's the gist of what I work on!
+Check out some sneak peaks of solutions I've built to automate marketing operations on Nike's Paid Social team. I can't share all the code, but here's the gist of what I work on!
 
 ## 🗓️ YoY Comps via Black Friday Calendar
 Typical data platforms only allow daily YoY comparisons to be made to the same calendar date last year. However, in the marketing industry, where Q4 revolves around Black Friday but Black Friday falls on a different date each year, it doesn't make sense to compare by date. In order to give media coordinators insight into how campaigns are performing relative to last year, I created a Python program that leverages pandas and the datetime library to build a retail calendar centered around Black Friday.
