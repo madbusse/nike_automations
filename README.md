@@ -1,4 +1,4 @@
-# Nike Social Automations
+# Nike Automations
 Check out some sneak peaks of solutions I've built to automate marketing operations at Nike. I can't share all the code, but here's the gist of what I work on!
 
 ## 🗓️ YoY Comps via Black Friday Calendar
