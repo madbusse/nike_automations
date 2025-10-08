@@ -63,6 +63,26 @@ def prepare_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
     df = df.drop(columns=['date_day'])
     return df
 
+def prepare_web_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """
+    Shortens the names of relevant columns, converts dates to datetimes, and
+    adds Black Friday date to each row based on the given year.
+    
+    SPECIFICALLY FOR WEB DATA
+    """
+    df["date"] = pd.to_datetime(df["date_day"], format="%m/%d/%Y")
+    bf = black_friday(year)
+    df["bf_date"] = (df["date"] - pd.to_datetime(bf)).dt.days
+    df["bf_week"] = df["bf_date"].apply(get_bf_week)
+    df = df.rename(columns={
+        "adobe_revenue": "demand",
+        "adobe_orders": "orders",
+        "adobe_visits": "visits",
+        "media_spend": "spend",
+    })
+    df = df.drop(columns=['date_day'])
+    return df
+
 def get_date_from_bf_date(year: int, bf_date: int) -> datetime.date:
     """
     Gets a datetime date from the BF date in a given year.
@@ -232,6 +252,18 @@ def make_metric_df(thisyear_df: pd.DataFrame, lastyear_df: pd.DataFrame, kpis: l
 
     return output_df
 
+def get_promos(date: datetime) -> None:
+    promo_df = pd.read_csv(
+        "promos.csv",
+        parse_dates=["Start Date", "End Date"],
+        date_format="%m/%d/%y"
+    )
+    active_promos = promo_df[(date >= promo_df["Start Date"].dt.date) & (date <= promo_df["End Date"].dt.date)]
+    if not active_promos.empty: 
+        print(f"Active promos on {date}: {active_promos['Promo Name'].tolist()}")
+    else:
+        print(f"No active promos on {date}.")
+
 # defaults to yesterday for data
 yesterday_bf_date = (yesterday.date() - black_friday(yesterday.year)).days
 yesterday_bf_week = get_bf_week(yesterday_bf_date)
@@ -240,13 +272,18 @@ yesterday_lastyear = get_date_from_bf_date(lastyear, yesterday_bf_date)
 ### Make dfs
 thisyear_df = prepare_df(load_df(f'{thisyear}'), thisyear)
 lastyear_df = prepare_df(load_df(f'{lastyear}'), lastyear)
-# thisyear_web_df = prepare_df(load_df(f'{thisyear}-web'))
+thisyear_web_df = prepare_web_df(load_df(f'{thisyear}-web'), thisyear)
+lastyear_web_df = prepare_web_df(load_df(f'{lastyear}-web'), lastyear)
 
 ### ALLUP 
 thisyear_allup = aggregate_by_day(thisyear_df, kpis)
 lastyear_allup = aggregate_by_day(lastyear_df, kpis)
+thisyear_web_allup = aggregate_by_day(thisyear_web_df, kpis)
+lastyear_web_allup = aggregate_by_day(lastyear_web_df, kpis)
 thisyear_weekly_allup = aggregate_by_week(thisyear_df, kpis)
 lastyear_weekly_allup = aggregate_by_week(lastyear_df, kpis)
+thisyear_weekly_web_allup = aggregate_by_week(thisyear_web_df, kpis)
+lastyear_weekly_web_allup = aggregate_by_week(lastyear_web_df, kpis)
 
 ### META
 thisyear_meta = filter_platform(thisyear_df, 'meta')
@@ -276,9 +313,12 @@ with open("slack_message.txt", "w") as f:
         print_metrics(thisyear_meta_dynamic, lastyear_meta_dynamic, topline_kpis, yesterday_bf_date)
         if thisyear_meta_promo.empty:
             print("\nNo Meta Promo data from this year.")
+            get_promos(yesterday_lastyear)
         else:
             print("\n *=== META PROMO ===* ")
             print_metrics(thisyear_meta_promo, lastyear_meta_promo, topline_kpis, yesterday_bf_date)
+            get_promos(yesterday)
+            get_promos(yesterday_lastyear)
     except TypeError as e:
         print(f"Unable to process - no data for yesterday {yesterday.date()}")
 sys.stdout = sys.__stdout__
@@ -287,8 +327,10 @@ f.close()
 try:
     ### OUTPUT CSV
     allup_df = make_metric_df(thisyear_allup, lastyear_allup, kpis, "bf_date", yesterday_bf_date, f'ALLUP ({yesterday.date()})')
+    allup_web_df = make_metric_df(thisyear_web_allup, lastyear_web_allup, kpis, "bf_date", yesterday_bf_date, f'ALLUP - WEB ONLY ({yesterday.date()})')
+    merge0 = pd.concat([allup_df, allup_web_df])
     meta_dynamic_df = make_metric_df(thisyear_meta_dynamic, lastyear_meta_dynamic, kpis, "bf_date", yesterday_bf_date, f'META DYNAMIC ({yesterday.date()})')
-    merge1 = pd.concat([allup_df, meta_dynamic_df])
+    merge1 = pd.concat([merge0, meta_dynamic_df])
     if thisyear_meta_promo.empty:
         merge1.to_csv("full_metrics.csv", index=True)
     else:
@@ -297,8 +339,10 @@ try:
         merge2.to_csv("full_metrics.csv", index=True)
     ### WEEKLY 
     allup_weekly_df = make_metric_df(thisyear_weekly_allup, lastyear_weekly_allup, kpis, "bf_week", yesterday_bf_week, f'ALLUP (last week)')
+    allup_weekly_web_df = make_metric_df(thisyear_weekly_web_allup, lastyear_weekly_web_allup, kpis, "bf_week", yesterday_bf_week, f'ALLUP - WEB ONLY (last week)')
+    merge0 = pd.concat([allup_weekly_df, allup_weekly_web_df])
     meta_dynamic_weekly_df = make_metric_df(thisyear_weekly_meta_dynamic, lastyear_weekly_meta_dynamic, kpis, "bf_week", yesterday_bf_week, f'META DYNAMIC (last week)')
-    merge1weekly = pd.concat([allup_weekly_df, meta_dynamic_weekly_df])
+    merge1weekly = pd.concat([merge0, meta_dynamic_weekly_df])
     if thisyear_weekly_meta_promo.empty:
         merge1weekly.to_csv("full_metrics_weekly.csv", index=True)
     else:
